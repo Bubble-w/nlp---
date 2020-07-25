@@ -1,0 +1,63 @@
+# 参考链接：https://github.com/datawhalechina/team-learning-nlp/blob/master/NewsTextClassification/Task2%20%E6%95%B0%E6%8D%AE%E8%AF%BB%E5%8F%96%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%88%86%E6%9E%90.md
+
+import pandas as pd
+train_df = pd.read_csv(r'D:\nlp_news_classify_rumen\train_set\train_set.csv', sep='\t')
+train_df.head()
+
+train_df['text_len'] = train_df['text'].apply(lambda x: len(x.split(' ')))
+print(train_df['text_len'].describe())
+
+# 句子长度分析
+import matplotlib.pyplot as plt
+plt.hist(train_df['text_len'], bins=200)
+plt.xlabel('Text char count')
+plt.title('Histogram of char count')
+plt.show()
+
+# 新闻类别分布
+train_df['label'].value_counts().plot(kind='bar')
+plt.title('New class count')
+plt.xlabel('category')
+plt.show()
+# {'科技': 0, '股票': 1, '体育': 2, '娱乐': 3, '时政': 4, '社会': 5, '教育': 6, '财经': 7, '家居': 8, '游戏': 9, '房产': 10, '时尚': 11, '彩票': 12, '星座': 13}
+
+# 将所有句子进行拼接，并按字符统计个数
+from collections import Counter
+all_lines = ' '.join(list(train_df['text']))
+word_count = Counter(all_lines.split(' '))
+word_count = sorted(word_count.items(), key=lambda d:d[1], reverse=True)
+print(len(word_count))
+print(word_count[0])
+print(word_count[-1])
+
+train_df['text_unique'] = train_df['text'].apply(lambda x: ' '.join(list(set(x.split(' ')))))
+all_lines = ' '.join(list(train_df['text_unique']))
+word_count = Counter(all_lines.split(' '))
+word_count = sorted(word_count.items(), key=lambda d:int(d[1]), reverse=True)
+
+print(word_count[0])
+print(word_count[1])
+print(word_count[2])
+
+# 任务1：假设字符3750，字符900和字符648是句子的标点符号，请分析赛题每篇新闻平均由多少个句子构成？
+def juzi_num_count(x):
+    word_count = Counter(x.split(' '))
+    num = word_count['3750'] + word_count['900'] + word_count['648']
+    return num
+
+print(train_df.dtypes)
+train_df['juzi_num'] = train_df['text'].apply(lambda x: juzi_num_count(x))
+print(train_df['juzi_num'].describe())
+# 结果：mean         78.348290
+
+# 任务2：统计每类新闻中出现次数对多的字符
+type_char_num = {}
+for i in range(14):
+    data = train_df[train_df['label'].isin([i])]
+    all_lines = ' '.join(list(data['text']))
+    word_count = Counter(all_lines.split(' '))
+    word_count = sorted(word_count.items(), key=lambda d:d[1], reverse=True)
+    type_char_num[i] = word_count[0][0]
+    data = pd.DataFrame()
+print(type_char_num)
+# 结果：每类新闻中，字符数最多的都是'3750'
