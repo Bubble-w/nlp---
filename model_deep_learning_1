@@ -1,0 +1,146 @@
+# word2vec训练
+
+from gensim.models.word2vec import Word2Vec
+from gensim.models.word2vec import LineSentence
+
+               
+model = Word2Vec(LineSentence(train_df['text']), workers=5, size=300, min_count=5)  
+
+# textcnn 训练
+https://blog.csdn.net/weixin_42813521/article/details/104991490
+
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from sklearn.preprocessing import MultiLabelBinarizer
+vocab_size=30000
+padding_size=200
+text_preprocesser = Tokenizer(num_words=vocab_size, oov_token="<UNK>")
+text_preprocesser.fit_on_texts(train_df['text'])
+x = text_preprocesser.texts_to_sequences(train_df['text'])
+word_dict = text_preprocesser.word_index
+x = pad_sequences(x, maxlen=padding_size,padding='post', truncating='post')
+
+import logging
+from tensorflow.keras import Input
+from tensorflow.keras.layers import Conv1D, MaxPool1D, Dense, Flatten, concatenate, Embedding
+from tensorflow.keras.models import Model
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.callbacks import EarlyStopping
+from pprint import pprint
+
+def TextCNN(max_sequence_length, max_token_num, embedding_dim, output_dim, model_img_path=None, embedding_matrix=None):
+    """
+    TextCNN: 
+    1.embedding layers, 
+    2.convolution layer, 
+    3.max-pooling, 
+    4.softmax layer. 
+    """
+    
+    x_input = Input(shape=(max_sequence_length,))
+    logging.info("x_input.shape: %s" % str(x_input.shape))  # (?, 60)
+
+    if embedding_matrix is None:
+        x_emb = Embedding(input_dim=max_token_num, output_dim=embedding_dim, input_length=max_sequence_length)(x_input)
+    else:
+        x_emb = Embedding(input_dim=max_token_num, output_dim=embedding_dim, input_length=max_sequence_length,
+                          weights=[embedding_matrix], trainable=True)(x_input)
+    
+    logging.info("x_emb.shape: %s" % str(x_emb.shape))  # (?, 60, 300)
+
+    pool_output = []
+    kernel_sizes = [2, 3, 4] 
+    for kernel_size in kernel_sizes:
+        c = Conv1D(filters=2, kernel_size=kernel_size, strides=1)(x_emb)
+        p = MaxPool1D(pool_size=int(c.shape[1]))(c)
+        pool_output.append(p)
+        logging.info("kernel_size: %s \t c.shape: %s \t p.shape: %s" % (kernel_size, str(c.shape), str(p.shape)))
+    
+    pool_output = concatenate([p for p in pool_output])
+    logging.info("pool_output.shape: %s" % str(pool_output.shape))  # (?, 1, 6)
+
+    x_flatten = Flatten()(pool_output)  # (?, 6)
+    y = Dense(output_dim, activation='softmax')(x_flatten)  # (?, 2)
+    
+    logging.info("y.shape: %s \n" % str(y.shape))
+
+    model = Model([x_input], outputs=[y])
+    
+    if model_img_path:
+        plot_model(model, to_file=model_img_path, show_shapes=True, show_layer_names=False)
+    model.summary()
+    
+    return model
+ #设置参数
+feature_size=padding_size
+embed_size=300
+num_classes=len(y[0])
+filter_sizes='3,4,5'
+dropout_rate=0.5
+regularizers_lambda=0.01
+learning_rate=0.01
+batch_size=512
+epochs=5
+model=TextCNN(max_sequence_length=feature_size, max_token_num=vocab_size, embedding_dim=embed_size, output_dim=num_classes)
+
+# TextRNN 训练 
+https://www.jianshu.com/p/cd9563a3f6c9
+
+class RnnModel(object):
+
+   def __init__(self):
+       self.input_x = tf.placeholder(tf.int32, shape=[None, pm.seq_length], name='input_x')
+       self.input_y = tf.placeholder(tf.float32, shape=[None, pm.num_classes], name='input_y')
+       self.seq_length = tf.placeholder(tf.int32, shape=[None], name='sequen_length')
+       self.keep_prob = tf.placeholder(tf.float32, name='keep_prob')
+       self.global_step = tf.Variable(0, trainable=False, name='global_step')
+       self.rnn()
+
+   def rnn(self):
+
+       with tf.device('/cpu:0'), tf.name_scope('embedding'):
+           embedding = tf.get_variable('embedding', shape=[pm.vocab_size, pm.embedding_dim],
+                                       initializer=tf.constant_initializer(pm.pre_trianing))
+           self.embedding_input = tf.nn.embedding_lookup(embedding, self.input_x)
+
+       with tf.name_scope('cell'):
+           cell = tf.nn.rnn_cell.LSTMCell(pm.hidden_dim)
+           cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=self.keep_prob)
+
+           cells = [cell for _ in range(pm.num_layers)]
+           Cell = tf.nn.rnn_cell.MultiRNNCell(cells, state_is_tuple=True)
+
+       with tf.name_scope('rnn'):
+           #hidden一层 输入是[batch_size, seq_length, embendding_dim]
+           #hidden二层 输入是[batch_size, seq_length, 2*hidden_dim]
+           #2*hidden_dim = embendding_dim + hidden_dim
+           output, _ = tf.nn.dynamic_rnn(cell=Cell, inputs=self.embedding_input, sequence_length=self.seq_length, dtype=tf.float32)
+           output = tf.reduce_sum(output, axis=1)
+           #output:[batch_size, seq_length, hidden_dim]
+
+       with tf.name_scope('dropout'):
+           self.out_drop = tf.nn.dropout(output, keep_prob=self.keep_prob)
+
+       with tf.name_scope('output'):
+           w = tf.Variable(tf.truncated_normal([pm.hidden_dim, pm.num_classes], stddev=0.1), name='w')
+           b = tf.Variable(tf.constant(0.1, shape=[pm.num_classes]), name='b')
+           self.logits = tf.matmul(self.out_drop, w) + b
+           self.predict = tf.argmax(tf.nn.softmax(self.logits), 1, name='predict')
+
+       with tf.name_scope('loss'):
+           losses = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.input_y)
+           self.loss = tf.reduce_mean(losses)
+
+       with tf.name_scope('optimizer'):
+           optimizer = tf.train.AdamOptimizer(pm.learning_rate)
+           gradients, variables = zip(*optimizer.compute_gradients(self.loss))#计算变量梯度，得到梯度值,变量
+           gradients, _ = tf.clip_by_global_norm(gradients, pm.clip)
+           #对g进行l2正则化计算，比较其与clip的值，如果l2后的值更大，让梯度*(clip/l2_g),得到新梯度
+           self.optimizer = optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
+           #global_step 自动+1
+
+       with tf.name_scope('accuracy'):
+           correct_prediction = tf.equal(self.predict, tf.argmax(self.input_y, 1))
+           self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32), name='accuracy')
+
+# 待深究
